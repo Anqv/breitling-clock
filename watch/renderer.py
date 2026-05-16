@@ -3,7 +3,7 @@ import os
 from PyQt5.QtCore import Qt, QRectF, QPointF
 from PyQt5.QtGui import (
     QPainter, QColor, QPen, QBrush, QLinearGradient, QRadialGradient,
-    QFont, QPainterPath, QFontMetrics, QPixmap, QImage
+    QFont, QPainterPath, QFontMetrics, QPixmap, QImage, QFontDatabase
 )
 from PyQt5.Qt import QPen
 
@@ -18,7 +18,27 @@ class WatchRenderer:
         self.settings = settings
         self.lcd_colors = self.settings.get_lcd_colors()
         self.background_image = None
+        self.bezel_image = None
+        self.seg_font = None
         self._load_background()
+        self._load_bezel()
+        self._load_seven_segment_font()
+
+    def _load_bezel(self):
+        project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        bezel_path = os.path.join(project_dir, "assets", "watch_bezel_without_face.png")
+        if os.path.exists(bezel_path):
+            self.bezel_image = QPixmap(bezel_path)
+
+    def _load_seven_segment_font(self):
+        project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        font_path = os.path.join(project_dir, "assets", "fonts", "DSEG7Classic-Bold.ttf")
+        if os.path.exists(font_path):
+            font_id = QFontDatabase.addApplicationFont(font_path)
+            if font_id != -1:
+                families = QFontDatabase.applicationFontFamilies(font_id)
+                if families:
+                    self.seg_font = QFont(families[0])
 
     def _load_background(self):
         bg_config = self.settings.config.get("background", {})
@@ -41,9 +61,33 @@ class WatchRenderer:
         outer_radius = min(width, height) * 0.45
         bezel_width = outer_radius * 0.12
 
+        # Draw bezel first (background layer) - scaled to fill widget
+        if self.bezel_image and not self.bezel_image.isNull():
+            bezel_scaled = self.bezel_image.scaled(width, height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            b_w = bezel_scaled.width()
+            b_h = bezel_scaled.height()
+            b_offset_x = (width - b_w) // 2
+            b_offset_y = (height - b_h) // 2
+            
+            painter.save()
+            painter.translate(cx, cy)
+            painter.rotate(bezel_angle)
+            painter.translate(-cx, -cy)
+            painter.drawPixmap(b_offset_x, b_offset_y, bezel_scaled)
+            painter.restore()
+
+        # Draw watch face on top of bezel - scaled to fit inside bezel
         if self.background_image and not self.background_image.isNull():
-            scaled = self.background_image.scaled(width, height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            painter.drawPixmap(0, 0, scaled)
+            # Scale watch face to fit within the bezel's inner area
+            watch_scaled = self.background_image.scaled(int(width * 0.75), int(height * 0.75), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            w_w = watch_scaled.width()
+            w_h = watch_scaled.height()
+            w_offset_x = (width - w_w) // 2
+            w_offset_y = (height - w_h) // 2
+            painter.drawPixmap(w_offset_x, w_offset_y, watch_scaled)
+            bg_config = self.settings.config.get("background", {})
+            cx = (width // 2) + bg_config.get("center_x", 0)
+            cy = (height // 2) + bg_config.get("center_y", 0)
         else:
             self._draw_3d_case(painter, cx, cy, outer_radius + bezel_width)
             self._draw_3d_bezel(painter, cx, cy, outer_radius, bezel_width, bezel_angle)
@@ -174,19 +218,54 @@ class WatchRenderer:
         primary = _c(lcd["primary"])
         bg = _c(lcd["background"])
 
-        upper_y = cy - radius * 0.20
-        lower_y = cy + radius * 0.25
-        lcd_width = radius * 1.3 * 0.67
-        lcd_height = radius * 0.25
-
         date_str = time_data.get("date", "16:05")
         utc_str = time_data.get("utc", "14:32:45")
+        utc_label = time_data.get("utc_label", "utc")
 
-        self._draw_7segment_lcd(painter, cx - lcd_width / 2, upper_y - lcd_height / 2,
-                               lcd_width, lcd_height, bg, primary, date_str)
+        # Use different positions based on whether background image is used
+        if self.background_image and not self.background_image.isNull():
+            # Scale factor: watch face (613) / bezel (817) = 0.75
+            scale = 0.75
+            
+            # Exact positions from watch_face.png (292x292)
+            # Upper LCD: y=52-87, center offset -0.524, height 0.247
+            # Make 20% smaller
+            upper_y = cy - radius * 0.524 * scale
+            upper_lcd_height = radius * 0.247 * 0.80 * scale
+            upper_lcd_width = radius * 1.15 * 0.80 * scale
+            
+            # Lower LCD: box x=75, y=195, w=143, h=40
+            # Make 10% smaller, move left 10px, down 20px (scaled)
+            lower_y = cy + radius * 0.473 * scale + 20 * scale
+            lower_lcd_height = radius * 0.274 * 0.90 * scale
+            lower_lcd_width = radius * 0.98 * 0.90 * scale
+            
+            self._draw_7segment_lcd(painter, cx - upper_lcd_width / 2, upper_y - upper_lcd_height / 2 - 2,
+                                   upper_lcd_width, upper_lcd_height, bg, primary, date_str, -3)
 
-        self._draw_7segment_lcd(painter, cx - lcd_width / 2, lower_y - lcd_height / 2,
-                               lcd_width, lcd_height, bg, primary, utc_str)
+            self._draw_7segment_lcd(painter, cx - lower_lcd_width / 2 - 10 + 14, lower_y - lower_lcd_height / 2,
+                                   lower_lcd_width, lower_lcd_height, bg, primary, utc_str)
+            
+            # Draw timezone label in lower-left corner if UTC
+            if utc_label == "utc":
+                self._draw_timezone_label(painter, cx - lower_lcd_width / 2 - 10 + 14 - 20 - 5, lower_y - lower_lcd_height / 2 - 15 - 2,
+                                         lower_lcd_width, lower_lcd_height, primary)
+        else:
+            # Default positions for generated watch face
+            upper_y = cy - radius * 0.20
+            lower_y = cy + radius * 0.25
+            lcd_width = radius * 1.3 * 0.67
+            lcd_height = radius * 0.25
+            
+            self._draw_7segment_lcd(painter, cx - lcd_width / 2, upper_y - lcd_height / 2,
+                                   lcd_width, lcd_height, bg, primary, date_str)
+
+            self._draw_7segment_lcd(painter, cx - lcd_width / 2, lower_y - lcd_height / 2,
+                                   lcd_width, lcd_height, bg, primary, utc_str)
+            
+            if utc_label == "utc":
+                self._draw_timezone_label(painter, cx - lcd_width / 2 - 20 - 5, lower_y - lcd_height / 2 - 15 - 2,
+                                         lcd_width, lcd_height, primary)
 
     SEGMENT_MAP = {
     '0': [1, 1, 1, 1, 1, 1, 0],
@@ -231,42 +310,45 @@ class WatchRenderer:
     ' ': [0, 0, 0, 0, 0, 0, 0],
 }
 
-    def _draw_7segment_lcd(self, painter, x, y, w, h, bg, primary, value):
+    def _draw_7segment_lcd(self, painter, x, y, w, h, bg, primary, value, y_offset=0):
         xi, yi, wi, hi = int(x), int(y), int(w), int(h)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(xi, yi, wi, hi, 4, 4)
-
-        inner_bg = QColor(bg.red() + 8, bg.green() + 8, bg.blue() + 8)
-        painter.setBrush(QBrush(inner_bg))
-        painter.drawRoundedRect(xi + 3, yi + 3, wi - 6, hi - 6, 2, 2)
+        # No black background - LCD areas are already black in the image
 
         if value:
-            self._draw_7segment_text(painter, xi + 3, yi + 3, wi - 6, hi - 6, primary, value)
+            self._draw_7segment_text(painter, xi, yi + y_offset, wi, hi, primary, value)
+
+    def _draw_timezone_label(self, painter, x, y, w, h, primary):
+        font = QFont("Arial", int(h * 0.2))
+        painter.setFont(font)
+        painter.setPen(QPen(primary, 1))
+        painter.drawText(QPointF(x + 2, y + h * 0.25), "UTC")
 
     def _draw_7segment_text(self, painter, x, y, w, h, color, text):
-        text = text.upper()
-        display_len = sum(2 if c == ':' else 1 for c in text)
-        if display_len == 0:
+        if not self.seg_font:
             return
-
-        available_w = w - w * 0.1
-        char_w = available_w / display_len
-
-        start_x = x + w * 0.05
-        pos = 0
-        for char in text:
-            char_x = start_x + pos * char_w
-            if char == ':':
-                self._draw_7segment_colon(painter, char_x, y, char_w, h, color)
-            else:
-                self._draw_7segment_char(painter, char_x, y, char_w, h, color, char)
-            pos += 2 if char == ':' else 1
+            
+        text = text.upper()
+        
+        # Create font with size to fill the LCD area
+        font = QFont(self.seg_font)
+        font.setPixelSize(int(h * 0.95))
+        
+        painter.setFont(font)
+        painter.setPen(QPen(color, 1))
+        
+        # Calculate text position to center it
+        fm = QFontMetrics(font)
+        text_width = fm.horizontalAdvance(text)
+        text_x = x + (w - text_width) / 2
+        text_y = y + h * 0.85  # Baseline position
+        
+        painter.drawText(QPointF(text_x, text_y), text)
 
     def _draw_7segment_colon(self, painter, x, y, w, h, color):
-        dot_r = w * 0.15
-        dot1_y = y + h * 0.35
-        dot2_y = y + h * 0.65
+        # Two circular dots like in the 6x7seg.png image
+        dot_r = h * 0.07
+        dot1_y = y + h * 0.32
+        dot2_y = y + h * 0.62
 
         painter.setPen(Qt.NoPen)
         painter.setBrush(QBrush(color))
@@ -276,63 +358,85 @@ class WatchRenderer:
     def _draw_7segment_char(self, painter, x, y, w, h, color, char):
         segments = self.SEGMENT_MAP.get(char, [0] * 7)
 
-        gap = w * 0.04
-        left = x + w * 0.18
-        right = x + w * 0.82
-        top = y + h * 0.12
-        middle = y + h * 0.5
-        bottom = y + h * 0.88
-
+        # Segment geometry matching 6x7seg.png style exactly
+        # Thick segments with angled/diamond ends
+        seg_thickness = w * 0.15  # Segment width/thickness
+        gap = seg_thickness * 0.35  # Gap between segments
+        
+        # Character boundaries
+        char_left = x + w * 0.05
+        char_right = x + w * 0.95
+        char_top = y
+        char_middle = y + h * 0.5
+        char_bottom = y + h
+        
+        # Horizontal segment positions
+        h_seg_y_top = char_top
+        h_seg_y_mid = char_middle - seg_thickness / 2
+        h_seg_y_bot = char_bottom - seg_thickness
+        
+        # Vertical segment positions
+        v_seg_x_left = char_left
+        v_seg_x_right = char_right - seg_thickness
+        
+        # Vertical segment heights
+        v_seg_top_start = char_top + seg_thickness + gap
+        v_seg_top_end = char_middle - gap - seg_thickness / 2
+        v_seg_bot_start = char_middle + gap + seg_thickness / 2
+        v_seg_bot_end = char_bottom - seg_thickness - gap
+        
         path = QPainterPath()
+        
+        # Helper to draw horizontal segment with angled ends
+        def add_h_segment(left_x, right_x, top_y, thickness):
+            path.moveTo(left_x + gap, top_y)
+            path.lineTo(right_x - gap, top_y)
+            path.lineTo(right_x - gap - gap, top_y + thickness)
+            path.lineTo(left_x + gap + gap, top_y + thickness)
+            path.closeSubpath()
+        
+        # Helper to draw vertical segment with angled ends
+        def add_v_segment(x_pos, top_y, bottom_y, thickness, is_left=True):
+            if is_left:
+                path.moveTo(x_pos, top_y + gap)
+                path.lineTo(x_pos + thickness, top_y + gap + gap)
+                path.lineTo(x_pos + thickness, bottom_y - gap - gap)
+                path.lineTo(x_pos, bottom_y - gap)
+                path.closeSubpath()
+            else:
+                path.moveTo(x_pos, top_y + gap + gap)
+                path.lineTo(x_pos + thickness, top_y + gap)
+                path.lineTo(x_pos + thickness, bottom_y - gap)
+                path.lineTo(x_pos, bottom_y - gap - gap)
+                path.closeSubpath()
 
+        # Segment A (top horizontal)
         if segments[0]:
-            path.moveTo(left + gap, top)
-            path.lineTo(right - gap, top)
-            path.lineTo(right - gap - gap, top + w * 0.08)
-            path.lineTo(left + gap + gap, top + w * 0.08)
-            path.closeSubpath()
-
+            add_h_segment(char_left, char_right, h_seg_y_top, seg_thickness)
+        
+        # Segment F (top-left vertical)
         if segments[5]:
-            path.moveTo(left, top + gap)
-            path.lineTo(left + w * 0.08, top + gap + gap)
-            path.lineTo(left + w * 0.08, middle - gap - gap)
-            path.lineTo(left, middle - gap)
-            path.lineTo(left, top + gap)
-
-        if segments[6]:
-            path.moveTo(left + gap, middle)
-            path.lineTo(right - gap, middle)
-            path.lineTo(right - gap - gap, middle + w * 0.04)
-            path.lineTo(left + gap + gap, middle + w * 0.04)
-            path.closeSubpath()
-
-        if segments[4]:
-            path.moveTo(left, middle + gap)
-            path.lineTo(left + w * 0.08, middle + gap + gap)
-            path.lineTo(left + w * 0.08, bottom - gap - gap)
-            path.lineTo(left, bottom - gap)
-            path.lineTo(left, middle + gap)
-
-        if segments[3]:
-            path.moveTo(left + gap, bottom)
-            path.lineTo(right - gap, bottom)
-            path.lineTo(right - gap - gap, bottom - w * 0.08)
-            path.lineTo(left + gap + gap, bottom - w * 0.08)
-            path.closeSubpath()
-
-        if segments[2]:
-            path.moveTo(right - w * 0.08, middle + gap + gap)
-            path.lineTo(right, middle + gap)
-            path.lineTo(right, bottom - gap)
-            path.lineTo(right - w * 0.08, bottom - gap - gap)
-            path.lineTo(right - w * 0.08, middle + gap + gap)
-
+            add_v_segment(v_seg_x_left, v_seg_top_start, v_seg_top_end, seg_thickness, True)
+        
+        # Segment B (top-right vertical)
         if segments[1]:
-            path.moveTo(right - w * 0.08, top + gap + gap)
-            path.lineTo(right, top + gap)
-            path.lineTo(right, middle - gap)
-            path.lineTo(right - w * 0.08, middle - gap - gap)
-            path.lineTo(right - w * 0.08, top + gap + gap)
+            add_v_segment(v_seg_x_right, v_seg_top_start, v_seg_top_end, seg_thickness, False)
+        
+        # Segment G (middle horizontal)
+        if segments[6]:
+            add_h_segment(char_left, char_right, h_seg_y_mid, seg_thickness)
+        
+        # Segment E (bottom-left vertical)
+        if segments[4]:
+            add_v_segment(v_seg_x_left, v_seg_bot_start, v_seg_bot_end, seg_thickness, True)
+        
+        # Segment C (bottom-right vertical)
+        if segments[2]:
+            add_v_segment(v_seg_x_right, v_seg_bot_start, v_seg_bot_end, seg_thickness, False)
+        
+        # Segment D (bottom horizontal)
+        if segments[3]:
+            add_h_segment(char_left, char_right, h_seg_y_bot, seg_thickness)
 
         painter.fillPath(path, QBrush(color))
 
@@ -340,10 +444,12 @@ class WatchRenderer:
         hour = time_data["hour"] % 12
         minute = time_data["minute"]
         second = time_data["second"]
+        millisecond = time_data.get("millisecond", 0)
 
-        hour_angle = math.radians((hour + minute / 60) * 30 - 90)
-        minute_angle = math.radians(minute * 6 - 90)
-        second_angle = math.radians(second * 6 - 90)
+        # Smooth movement with millisecond precision
+        hour_angle = math.radians((hour + minute / 60 + second / 3600 + millisecond / 3600000) * 30 - 90)
+        minute_angle = math.radians((minute + second / 60 + millisecond / 60000) * 6 - 90)
+        second_angle = math.radians((second + millisecond / 1000) * 6 - 90)
 
         self._draw_3d_hour_hand(painter, cx, cy, hour_angle, max_radius * 0.55)
         self._draw_3d_minute_hand(painter, cx, cy, minute_angle, max_radius * 0.75)

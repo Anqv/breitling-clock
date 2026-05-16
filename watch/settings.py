@@ -21,6 +21,9 @@ class Settings:
         "background": {
             "image": ""
         },
+        "lower_lcd": {
+            "timezone": "UTC"
+        },
         "bezel_rotation": 0
     }
 
@@ -104,6 +107,18 @@ class Settings:
     def set_bezel_rotation(self, angle):
         self.config["bezel_rotation"] = angle % 360
         self.save()
+
+    def get_lower_lcd_config(self):
+        return self.config.get("lower_lcd", self.DEFAULT_CONFIG["lower_lcd"])
+
+    def get_timezone_offset(self):
+        tz = self.config.get("lower_lcd", {}).get("timezone", "UTC")
+        if tz == "UTC":
+            return 0
+        try:
+            return int(tz)
+        except ValueError:
+            return 0
 
 
 settings = Settings()

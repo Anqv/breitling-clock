@@ -8,10 +8,19 @@
     "offset_y": 0
   },
   "theme": {
-    "lcd_color": "amber"
+    "lcd_color": "amber",
+    "available_colors": [
+      "green",
+      "orange_gold",
+      "cyan",
+      "amber"
+    ]
   },
   "background": {
-    "image": "assets/watch_face.png"
+    "image": "assets/watch_face_clean_blue.png"
   },
-  "bezel_rotation": 0
+  "lower_lcd": {
+    "timezone": "UTC"
+  },
+  "bezel_rotation": 315.04465257591653
 }

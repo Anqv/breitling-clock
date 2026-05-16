@@ -19,7 +19,7 @@ class WatchFace(QWidget):
 
         self.time_timer = QTimer(self)
         self.time_timer.timeout.connect(self.update_time)
-        self.time_timer.start(1000)
+        self.time_timer.start(200)
         self.update_time()
 
     def update_time(self):
@@ -27,15 +27,36 @@ class WatchFace(QWidget):
         self.local_time = {
             "hour": self.current_time.time().hour(),
             "minute": self.current_time.time().minute(),
-            "second": self.current_time.time().second()
+            "second": self.current_time.time().second(),
+            "millisecond": self.current_time.time().msec()
         }
-        self.utc_time = {
-            "hour": self.current_time.toUTC().time().hour(),
-            "minute": self.current_time.toUTC().time().minute(),
-            "second": self.current_time.toUTC().time().second()
-        }
+        
+        # Calculate time based on timezone offset
+        tz_offset = settings.get_timezone_offset()
+        if tz_offset == 0:
+            # UTC time
+            base_time = self.current_time.toUTC()
+            self.display_time = {
+                "hour": base_time.time().hour(),
+                "minute": base_time.time().minute(),
+                "second": base_time.time().second(),
+                "label": "utc"
+            }
+        else:
+            # Offset from UTC
+            base_time = self.current_time.toUTC()
+            offset_time = base_time.addSecs(tz_offset * 3600)
+            self.display_time = {
+                "hour": offset_time.time().hour(),
+                "minute": offset_time.time().minute(),
+                "second": offset_time.time().second(),
+                "label": f"{tz_offset:+d}"
+            }
+        
         self.date = self.current_time.date()
-        self.day_name = self.current_time.toString("dddd")
+        # Force English day names
+        day_names = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        self.day_name = day_names[self.date.dayOfWeek() - 1]
         self.update()
 
     def paintEvent(self, event):
@@ -49,8 +70,9 @@ class WatchFace(QWidget):
         painter.fillRect(0, 0, w, h, QColor(0, 0, 0, 0))
 
         time_display = self.local_time.copy()
-        time_display["date"] = f"{self.date.day():02d}:{self.date.month():02d}"
-        time_display["utc"] = f"{self.utc_time['hour']:02d}:{self.utc_time['minute']:02d}:{self.utc_time['second']:02d}"
+        time_display["date"] = f"{self.date.day():02d}:{self.date.month():02d} {self.day_name}"
+        time_display["utc"] = f"{self.display_time['hour']:02d}:{self.display_time['minute']:02d}:{self.display_time['second']:02d}"
+        time_display["utc_label"] = self.display_time["label"]
 
         self.renderer.lcd_colors = settings.get_lcd_colors()
         self.renderer.render(painter, w, h, time_display, self.bezel.get_angle())

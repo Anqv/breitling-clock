@@ -41,26 +41,29 @@ python3 main.py
 ## Features
 
 ### Watch Face
-- **Analog display**: Shows local time with hour, minute, and second hands
-- **Upper LCD**: Shows date and day of week
-- **Lower LCD**: Shows UTC time
-- **Rotating bezel**: Touch/drag on the outer bezel ring to rotate it
+- **Photo-realistic background** - Custom watch face image
+- **Rotating bezel** - Touch/drag on the outer bezel to rotate
+- **Smooth analog hands** - Hour, minute, and second hands with millisecond precision
+- **Dual LCD displays** with DSEG7 Classic 7-segment font:
+  - Upper LCD: Date + Day (e.g., "16:05 sat")
+  - Lower LCD: UTC time (e.g., "14:32:45")
 
 ### Controls
+- **Touch/drag on bezel**: Rotate the bezel
 - **Touch/drag on dial**: Move the watch window
 - **Right-click**: Open context menu (mouse or touch-and-hold)
 - **Right-click menu**:
-  - LCD Color: Select green, orange_gold, cyan, or amber
+  - LCD Color: Select amber (default), green, orange_gold, or cyan
   - Close: Exit the application
 
 ### Theme Colors
 The watch supports multiple LCD color themes:
 | Theme | Color |
 |-------|-------|
-| green | Classic green LCD (default) |
+| amber | Warm amber (#ffdd00) - default |
+| green | Classic green (#00ff00) |
 | orange_gold | Breitling-inspired gold/orange |
 | cyan | Modern cyan |
-| amber | Warm amber |
 
 Change colors via right-click menu or edit:
 ```
@@ -77,20 +80,6 @@ The setup script creates:
 ### Check if autostart is working:
 ```bash
 cat ~/.config/autostart/breitling-clock.desktop
-```
-
-### Manual autostart setup:
-```bash
-mkdir -p ~/.config/autostart
-nano ~/.config/autostart/breitling-clock.desktop
-```
-
-Paste this content:
-```
-[Desktop Entry]
-Type=Application
-Name=Breitling Clock
-Exec=/home/pi/clock/start.sh
 ```
 
 ### Disable autostart:
@@ -145,11 +134,15 @@ cat ~/.config/autostart/breitling-clock.desktop
 - Edit settings: `nano ~/.config/clock/settings.json`
 - Change `"lcd_color"` to your preferred theme
 
+**LCD not visible:**
+- Ensure the background image has black LCD areas
+- Check that DSEG7 font is in `assets/fonts/`
+
 ## Technical Details
 
 - Window type: Frameless, always-on-top, transparent
 - Display area: 512 x 768 pixels
-- Update rate: 1 second intervals
+- Update rate: 200ms (5 updates per second for smooth hand movement)
 - Settings stored in: `~/.config/clock/settings.json`
 
 ## Future Features
