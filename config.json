@@ -1,0 +1,17 @@
+{
+  "display": {
+    "width": 1024,
+    "height": 768,
+    "watch_width": 512,
+    "watch_height": 768,
+    "offset_x": 0,
+    "offset_y": 0
+  },
+  "theme": {
+    "lcd_color": "amber"
+  },
+  "background": {
+    "image": "assets/watch_face.png"
+  },
+  "bezel_rotation": 0
+}

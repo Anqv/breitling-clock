@@ -1,0 +1,93 @@
+from PyQt5.QtWidgets import QWidget
+from PyQt5.QtCore import Qt, QTimer, QDateTime
+from PyQt5.QtGui import QPainter, QColor
+from .renderer import WatchRenderer
+from .bezel import BezelController
+from .settings import settings
+
+
+class WatchFace(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_AcceptTouchEvents)
+        self.setMouseTracking(True)
+
+        self.renderer = WatchRenderer(settings)
+        self.bezel = BezelController(settings)
+        self.weather = None
+
+        self.time_timer = QTimer(self)
+        self.time_timer.timeout.connect(self.update_time)
+        self.time_timer.start(1000)
+        self.update_time()
+
+    def update_time(self):
+        self.current_time = QDateTime.currentDateTime()
+        self.local_time = {
+            "hour": self.current_time.time().hour(),
+            "minute": self.current_time.time().minute(),
+            "second": self.current_time.time().second()
+        }
+        self.utc_time = {
+            "hour": self.current_time.toUTC().time().hour(),
+            "minute": self.current_time.toUTC().time().minute(),
+            "second": self.current_time.toUTC().time().second()
+        }
+        self.date = self.current_time.date()
+        self.day_name = self.current_time.toString("dddd")
+        self.update()
+
+    def paintEvent(self, event):
+        w = self.width()
+        h = self.height()
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+
+        painter.fillRect(0, 0, w, h, QColor(0, 0, 0, 0))
+
+        time_display = self.local_time.copy()
+        time_display["date"] = f"{self.date.day():02d}:{self.date.month():02d}"
+        time_display["utc"] = f"{self.utc_time['hour']:02d}:{self.utc_time['minute']:02d}:{self.utc_time['second']:02d}"
+
+        self.renderer.lcd_colors = settings.get_lcd_colors()
+        self.renderer.render(painter, w, h, time_display, self.bezel.get_angle())
+
+    def mousePressEvent(self, event):
+        cx, cy = self.width() / 2, self.height() / 2
+        radius = min(self.width(), self.height()) * 0.45
+
+        if self.bezel.is_on_bezel(event.x(), event.y(), cx, cy, radius):
+            self.bezel.start_drag(event.x(), event.y(), cx, cy)
+        else:
+            self._drag_start = event.pos()
+            self._dragging = True
+
+    def mouseMoveEvent(self, event):
+        if self.bezel.is_dragging:
+            self.bezel.update_drag(event.x(), event.y())
+            self.update()
+        elif hasattr(self, '_dragging') and self._dragging:
+            pass
+
+    def mouseReleaseEvent(self, event):
+        if self.bezel.is_dragging:
+            self.bezel.end_drag()
+            self.update()
+        self._dragging = False
+
+    def touchEvent(self, event):
+        if event.type() == event.TouchBegin:
+            touch = event.touches()[0]
+            self.mousePressEvent(touch)
+            return True
+        elif event.type() == event.TouchUpdate:
+            touch = event.touches()[0]
+            self.mouseMoveEvent(touch)
+            return True
+        elif event.type() == event.TouchEnd:
+            self.mouseReleaseEvent(event.touches()[0] if event.touches() else None)
+            return True
+        return super().touchEvent(event)
